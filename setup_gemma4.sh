@@ -64,16 +64,24 @@ log "Step 1/4: Installing dependencies..."
 
 $PYTHON -m pip install --quiet huggingface_hub 2>/dev/null || true
 
+install_mlx_vlm() {
+    local source="$1" label="$2"
+    log "  Trying: $label..."
+    if $PYTHON -m pip install "$source" 2>&1 | tail -3; then
+        $PYTHON -c "from mlx_vlm.server import app" 2>/dev/null && return 0
+    fi
+    return 1
+}
+
 if $PYTHON -c "from mlx_vlm.server import app" 2>/dev/null; then
     VER=$($PYTHON -c "import mlx_vlm; print(mlx_vlm.__version__)" 2>/dev/null)
     info "  mlx-vlm v$VER (already installed)"
 else
-    log "  Installing mlx-vlm (pip install from git, ~2-3 min)..."
-    $PYTHON -m pip install "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm.git@main" 2>&1 | \
-        grep -E "Successfully|ERROR" || true
-    $PYTHON -c "from mlx_vlm.server import app" 2>/dev/null || \
-        err "mlx-vlm failed to install. Check pip and internet connection."
-    info "  Installed: v$($PYTHON -c 'import mlx_vlm; print(mlx_vlm.__version__)')"
+    # Try 1: PyPI (fast, no git needed)
+    install_mlx_vlm "mlx-vlm" "PyPI (fast)" && info "  Installed from PyPI" || \
+    # Try 2: Git main (has latest fixes)
+    install_mlx_vlm "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm.git@main" "Git main (latest)" && info "  Installed from Git main" || \
+    err "mlx-vlm install failed. Check: internet connection, disk space, pip works."
 fi
 
 # ═══════════════════════════════════════════════════════════════════════
