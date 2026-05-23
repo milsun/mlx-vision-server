@@ -56,21 +56,18 @@ fi
 # ═══════════════════════════════════════════════════════════════════════
 echo ""
 log "Step 2/4: Model..."
-
 mkdir -p "$MODEL_DIR"
 
 if [ -f "$TARGET_LOCAL/model.safetensors" ]; then
-    SIZE=$(du -sh "$TARGET_LOCAL" 2>/dev/null | cut -f1)
-    info "  Already downloaded: $SIZE"
+    info "  Already downloaded: $(du -sh "$TARGET_LOCAL" | cut -f1)"
 else
     log "  Downloading from HuggingFace (~2.8 GB)..."
+    pip install -q huggingface_hub 2>/dev/null || true
     python3 -c "
-import os
-os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
 from huggingface_hub import snapshot_download
 snapshot_download('$TARGET', local_dir='$TARGET_LOCAL', local_dir_use_symlinks=False)
-" 2>&1 | tail -2
-    info "  Downloaded: $(du -sh "$TARGET_LOCAL" 2>/dev/null | cut -f1)"
+" 2>&1 | grep -v "^$" | tail -3
+    info "  Downloaded: $(du -sh "$TARGET_LOCAL" | cut -f1)"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════
