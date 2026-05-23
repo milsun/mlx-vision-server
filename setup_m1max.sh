@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════
-#  M1 Max — Qwen3.5 4B · Vision · APC Cache · Creative Writing
+#  M1 Max — Qwen3.5 4B · Vision · APC Cache
 #  Single command:  ./setup_m1max.sh
+#  Requires: Python 3.10+
 # ═══════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
 info() { echo -e "${CYAN}[*]${NC} $*"; }
+err()  { echo -e "${RED}[!]${NC} $*"; exit 1; }
 
-# ── Config (override via env) ────────────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────
 PORT="${PORT:-8000}"
 HOST="${HOST:-0.0.0.0}"
 MODEL_DIR="${MODEL_DIR:-$HOME/models/qwen35-4b-server}"
@@ -33,22 +35,47 @@ BANNER
 CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Apple Silicon")
 MEM=$(sysctl -n hw.memsize 2>/dev/null | awk '{printf "%.0f", $1/1024/1024/1024}')
 info "Chip: $CHIP  |  Memory: ${MEM} GB  |  Context: ${CTX} tokens"
-info "Model: Qwen3.5 4B 4-bit (~2.8 GB)"
+
+# ── Step 0: Check prerequisites ──────────────────────────────────────
 echo ""
+log "Step 0/4: Checking prerequisites..."
+
+# Python
+PYTHON=""
+for py in python3 python3.12 python3.11 python3.10; do
+    if command -v $py &>/dev/null && $py -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" 2>/dev/null; then
+        PYTHON="$py"
+        break
+    fi
+done
+[ -z "$PYTHON" ] && err "Python 3.10+ required but not found. Install: brew install python@3.12"
+PYVER=$($PYTHON --version 2>&1)
+info "  $PYVER ($(which $PYTHON))"
+
+# pip
+if ! $PYTHON -m pip --version &>/dev/null; then
+    err "pip not available. Run: $PYTHON -m ensurepip --upgrade"
+fi
+info "  pip: $($PYTHON -m pip --version | cut -d' ' -f1-2)"
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Step 1: Install mlx-vlm from git main
+#  Step 1: Install dependencies
 # ═══════════════════════════════════════════════════════════════════════
-log "Step 1/4: Checking mlx-vlm..."
+echo ""
+log "Step 1/4: Installing dependencies..."
 
-if python3 -c "from mlx_vlm.server import app" 2>/dev/null; then
-    VER=$(python3 -c "import mlx_vlm; print(mlx_vlm.__version__)" 2>/dev/null)
-    info "  Already installed: v$VER"
+$PYTHON -m pip install --quiet huggingface_hub 2>/dev/null || true
+
+if $PYTHON -c "from mlx_vlm.server import app" 2>/dev/null; then
+    VER=$($PYTHON -c "import mlx_vlm; print(mlx_vlm.__version__)" 2>/dev/null)
+    info "  mlx-vlm v$VER (already installed)"
 else
-    log "  Installing mlx-vlm (this may take 2-3 minutes)..."
-    pip install "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm.git@main" 2>&1 | \
-        grep -E "Successfully|ERROR|Already" || true
-    info "  Installed."
+    log "  Installing mlx-vlm (pip install from git, ~2-3 min)..."
+    $PYTHON -m pip install "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm.git@main" 2>&1 | \
+        grep -E "Successfully|ERROR" || true
+    $PYTHON -c "from mlx_vlm.server import app" 2>/dev/null || \
+        err "mlx-vlm failed to install. Check pip and internet connection."
+    info "  Installed: v$($PYTHON -c 'import mlx_vlm; print(mlx_vlm.__version__)')"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -61,12 +88,12 @@ mkdir -p "$MODEL_DIR"
 if [ -f "$TARGET_LOCAL/model.safetensors" ]; then
     info "  Already downloaded: $(du -sh "$TARGET_LOCAL" | cut -f1)"
 else
-    log "  Downloading from HuggingFace (~2.8 GB)..."
-    pip install -q huggingface_hub 2>/dev/null || true
-    python3 -c "
+    log "  Downloading from HuggingFace (~2.8 GB, one-time)..."
+    $PYTHON -c "
 from huggingface_hub import snapshot_download
 snapshot_download('$TARGET', local_dir='$TARGET_LOCAL', local_dir_use_symlinks=False)
-" 2>&1 | grep -v "^$" | tail -3
+print('Download complete.')
+" || err "Model download failed. Check internet connection and try again."
     info "  Downloaded: $(du -sh "$TARGET_LOCAL" | cut -f1)"
 fi
 
@@ -75,10 +102,9 @@ fi
 # ═══════════════════════════════════════════════════════════════════════
 echo ""
 log "Step 3/4: APC cache..."
-
 mkdir -p "$CACHE_DIR"
-info "  L1 RAM cache  |  $APC_BLOCKS blocks"
-info "  L2 disk cache |  $CACHE_DIR  (max ${CACHE_GB} GB)"
+info "  L1 RAM  |  $APC_BLOCKS blocks"
+info "  L2 disk |  $CACHE_DIR  (max ${CACHE_GB} GB, survives restarts)"
 
 export APC_ENABLED=1
 export APC_NUM_BLOCKS="$APC_BLOCKS"
@@ -91,46 +117,26 @@ export APC_DISK_MAX_GB="$CACHE_GB"
 echo ""
 log "Step 4/4: Starting server..."
 
-# ── Endpoint display ──────────────────────────────────────────────────
 cat << ENDPOINT
 
   ┌──────────────────────────────────────────────────────────────────┐
   │                                                                  │
-  │   ${BOLD}🎯  Endpointhttp://${HOST}:${PORT}${NC}                                  │
+  │   🎯  Endpoint    http://${HOST}:${PORT}                                    │
+  │   📡  API         http://${HOST}:${PORT}/v1/chat/completions               │
+  │   💚  Health      http://${HOST}:${PORT}/health                            │
+  │   📊  Cache Stats http://${HOST}:${PORT}/v1/cache/stats                    │
   │                                                                  │
-  │   ${BOLD}📡  APIhttp://${HOST}:${PORT}/v1/chat/completions${NC}                     │
-  │   ${BOLD}💚  Healthhttp://${HOST}:${PORT}/health${NC}                                  │
-  │   ${BOLD}📊  Cache Statshttp://${HOST}:${PORT}/v1/cache/stats${NC}                          │
-  │                                                                  │
-  │   ${BOLD}Configuration:${NC}                                                │
-  │   • Model:      Qwen3.5 4B 4-bit                                 │
-  │   • Vision:     ✅ native early-fusion                            │
-  │   • Cache:      ✅ APC L1+L2 persistent                           │
-  │   • Context:    ${CTX} tokens                                        │
-  │   • Thinking:   OFF by default (creative mode)                   │
-  │   • Defaults:   temp=0.9  top_p=0.95  presence_penalty=1.5       │
+  │   Model:      Qwen3.5 4B 4-bit (~2.8 GB)                        │
+  │   Vision:     ✅ native early-fusion                             │
+  │   Cache:      ✅ APC L1+L2 persistent                            │
+  │   Context:    ${CTX} tokens                                          │
+  │   Thinking:   OFF by default (toggle via API)                    │
   │                                                                  │
   └──────────────────────────────────────────────────────────────────┘
 
-  ── Quick test ──────────────────────────────────────────────────
-
-  curl http://${HOST}:${PORT}/v1/chat/completions \\
-    -H "Content-Type: application/json" \\
-    -d '{
-      "model": "${TARGET_LOCAL}",
-      "messages": [{"role":"user","content":"Write a haiku about silence."}],
-      "max_tokens": 64,
-      "temperature": 0.9,
-      "top_p": 0.95,
-      "presence_penalty": 1.5,
-      "chat_template_kwargs": {"enable_thinking": false}
-    }'
-
-  ────────────────────────────────────────────────────────────────
-
 ENDPOINT
 
-exec python3 -m mlx_vlm.server \
+exec $PYTHON -m mlx_vlm.server \
   --model "$TARGET_LOCAL" \
   --host "$HOST" \
   --port "$PORT" \
