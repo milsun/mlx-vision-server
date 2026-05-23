@@ -12,7 +12,7 @@ info() { echo -e "${CYAN}[*]${NC} $*"; }
 err()  { echo -e "${RED}[!]${NC} $*"; exit 1; }
 
 # ── Config ───────────────────────────────────────────────────────────
-PORT="${PORT:-8001}"
+PORT="${PORT:-8081}"
 HOST="${HOST:-0.0.0.0}"
 MODEL_DIR="${MODEL_DIR:-$HOME/models/gemma4-e2b}"
 CACHE_DIR="${CACHE_DIR:-$HOME/.cache/mlx-vlm/apc-gemma}"

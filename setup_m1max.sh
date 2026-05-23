@@ -12,7 +12,7 @@ info() { echo -e "${CYAN}[*]${NC} $*"; }
 err()  { echo -e "${RED}[!]${NC} $*"; exit 1; }
 
 # ── Config ───────────────────────────────────────────────────────────
-PORT="${PORT:-8000}"
+PORT="${PORT:-8080}"
 HOST="${HOST:-0.0.0.0}"
 MODEL_DIR="${MODEL_DIR:-$HOME/models/qwen35-4b-server}"
 CACHE_DIR="${CACHE_DIR:-$HOME/.cache/mlx-vlm/apc}"
