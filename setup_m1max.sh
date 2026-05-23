@@ -39,12 +39,20 @@ echo ""
 # ═══════════════════════════════════════════════════════════════════════
 #  Step 1: Install mlx-vlm from git main
 # ═══════════════════════════════════════════════════════════════════════
-log "Step 1/4: Installing mlx-vlm (git main)..."
+log "Step 1/4: Installing mlx-vlm..."
 
-CURRENT=$(python3 -c "import mlx_vlm; print(mlx_vlm.__version__)" 2>/dev/null || echo "none")
-info "  Current: $CURRENT → installing latest git main..."
-pip install -q --force-reinstall "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm.git@main" 2>&1 | tail -1
-info "  Done."
+# Check if mlx-vlm is already installed and working
+if python3 -c "from mlx_vlm.server import app" 2>/dev/null; then
+    VER=$(python3 -c "import mlx_vlm; print(mlx_vlm.__version__)" 2>/dev/null)
+    info "  Already installed: $VER"
+    # Try upgrading in background — don't block startup
+    pip install --upgrade "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm.git@main" 2>/dev/null &
+else
+    log "  Installing mlx-vlm (this may take a few minutes)..."
+    pip install "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm.git@main" 2>&1 | \
+        grep -E "Successfully|ERROR|Collecting" || true
+    info "  Installed."
+fi
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Step 2: Download model
