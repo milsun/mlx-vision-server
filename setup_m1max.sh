@@ -39,18 +39,15 @@ echo ""
 # ═══════════════════════════════════════════════════════════════════════
 #  Step 1: Install mlx-vlm from git main
 # ═══════════════════════════════════════════════════════════════════════
-log "Step 1/4: Installing mlx-vlm..."
+log "Step 1/4: Checking mlx-vlm..."
 
-# Check if mlx-vlm is already installed and working
 if python3 -c "from mlx_vlm.server import app" 2>/dev/null; then
     VER=$(python3 -c "import mlx_vlm; print(mlx_vlm.__version__)" 2>/dev/null)
-    info "  Already installed: $VER"
-    # Try upgrading in background — don't block startup
-    pip install --upgrade "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm.git@main" 2>/dev/null &
+    info "  Already installed: v$VER"
 else
-    log "  Installing mlx-vlm (this may take a few minutes)..."
+    log "  Installing mlx-vlm (this may take 2-3 minutes)..."
     pip install "mlx-vlm @ git+https://github.com/Blaizzy/mlx-vlm.git@main" 2>&1 | \
-        grep -E "Successfully|ERROR|Collecting" || true
+        grep -E "Successfully|ERROR|Already" || true
     info "  Installed."
 fi
 
